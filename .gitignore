@@ -1,4 +1,5 @@
 venv/
+.env
 
 SPDadosCriminais_2025.xlsx
 src/processing/dados_criminais_limpos.csv
