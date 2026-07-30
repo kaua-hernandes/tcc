@@ -90,3 +90,21 @@
 2026-05-31 11:29:22,658 - INFO - [clean_processor.py:77] - === Pipeline de Limpeza Concluído. Registros Finais Prontos: 834385 ===
 2026-05-31 11:29:22,664 - INFO - [trainer.py:29] - Iniciando treinamento do modelo K-Means com 15 clusters...
 2026-05-31 11:29:33,316 - INFO - [trainer.py:45] - Modelo preditivo espacial salvo com sucesso em: C:\Users\herna\Desktop\analise_criminalidade-TCC\src\models\saved_models\kmeans_spatial_model.pkl
+2026-07-26 19:39:16,268 - INFO - [extractor.py:51] - === Iniciando Processo de Ingestão de Dados - SSP-SP ===
+2026-07-26 19:39:16,268 - INFO - [extractor.py:31] - Arquivo de origem identificado com sucesso: /home/kaua/Área de trabalho/tcc/SPDadosCriminais_2025.xlsx
+2026-07-26 19:39:16,268 - INFO - [extractor.py:36] - Iniciando leitura da aba: JAN_A_JUN_2025
+2026-07-26 19:40:21,593 - INFO - [extractor.py:40] - Aba [JAN_A_JUN_2025] carregada com sucesso. Registros: 585427
+2026-07-26 19:40:21,593 - INFO - [extractor.py:36] - Iniciando leitura da aba: JUL_A_DEZ_2025
+2026-07-26 19:41:31,916 - INFO - [extractor.py:40] - Aba [JUL_A_DEZ_2025] carregada com sucesso. Registros: 575705
+2026-07-26 19:41:31,916 - INFO - [extractor.py:61] - Concatenando matrizes de dados do primeiro e segundo semestre...
+2026-07-26 19:41:31,972 - INFO - [extractor.py:64] - Unificação concluída. Volumetria final em memória: 1161132 linhas.
+2026-07-26 19:41:32,258 - INFO - [clean_processor.py:73] - === Iniciando Processo de Transformação e Modelagem Categórica ===
+2026-07-26 19:41:32,259 - INFO - [clean_processor.py:26] - Iniciando tratamento de anomalias nas coordenadas geográficas...
+2026-07-26 19:41:34,136 - INFO - [clean_processor.py:44] - Filtro geográfico concluído. Descartados 318134 registros corrompidos.
+2026-07-26 19:41:34,136 - INFO - [clean_processor.py:51] - Executando engenharia de atributos temporais (Feature Engineering)...
+2026-07-26 19:41:35,883 - INFO - [clean_processor.py:66] - Novos atributos numéricos (ANO, MES, DIA, DIA_SEMANA, HORA) injetados com sucesso.
+2026-07-26 19:41:36,083 - INFO - [clean_processor.py:77] - === Pipeline de Limpeza Concluído. Registros Finais Prontos: 834385 ===
+2026-07-26 19:41:36,083 - INFO - [trainer.py:29] - Iniciando treinamento do modelo K-Means com 15 clusters...
+2026-07-26 19:41:39,818 - INFO - [trainer.py:45] - Modelo preditivo espacial salvo com sucesso em: /home/kaua/Área de trabalho/tcc/src/models/saved_models/kmeans_spatial_model.pkl
+2026-07-26 20:01:58,898 - INFO - [database.py:32] - Iniciando a carga de dados no PostgreSQL/PostGIS...
+2026-07-26 20:02:25,422 - INFO - [database.py:46] -  Carga concluída com sucesso no PostgreSQL!
