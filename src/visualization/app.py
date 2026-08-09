@@ -1,24 +1,38 @@
 import os
 import sys
 
-path_raiz = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-if path_raiz not in sys.path:
-    sys.path.append(path_raiz)
+raiz_projeto = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+if raiz_projeto not in sys.path:
+    sys.path.insert(0, raiz_projeto)
 
-import io
+import logging
+from config.settings import Settings
+
+os.makedirs(Settings.LOG_DIR, exist_ok=True)
+log_arquivo = os.path.join(Settings.LOG_DIR, "pipeline_streamlit.log")
+
+log_format = "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
+logging.basicConfig(
+    level=logging.INFO,
+    format=log_format,
+    handlers=[
+        logging.FileHandler(log_arquivo, encoding="utf-8"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("StreamlitApp")
+
 import streamlit as st
 import pandas as pd
-import numpy as np
 import joblib
 import folium
 import plotly.express as px
 from streamlit_folium import st_folium
 from folium.plugins import HeatMap
 from fpdf import FPDF
-from config.settings import Settings
 from src.models.ai_copilot import SecurityCopilot
+from src.ingestion.database import DatabaseManager
 
-# 1. Configuração da Página e Estilização Customizada CSS
 st.set_page_config(page_title="Analytics Criminal SP", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
@@ -64,19 +78,42 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Título Principal
-st.markdown('<p class="header-title">🛡️ Sistema de Análise Preditiva e Mapeamento Criminal - 2025</p>', unsafe_allow_html=True)
+st.markdown('<p class="header-title">🛡️ Sistema de Análise Preditiva e Mapeamento Criminal - PostGIS</p>', unsafe_allow_html=True)
 st.markdown("---")
 
-@st.cache_data
-def carregar_dados_reais_ssp():
-    caminho_csv = os.path.join(Settings.BASE_DIR, "src", "processing", "dados_criminais_limpos.csv")
-    if os.path.exists(caminho_csv):
-        df = pd.read_csv(caminho_csv)
-        return df
-    return pd.DataFrame()
+@st.cache_resource
+def get_db_manager():
+    logger.info("[DB Resource] Conexão com o PostgreSQL/PostGIS inicializada.")
+    return DatabaseManager()
 
-# FUNÇÃO AUXILIAR PARA GERAR O PDF EM MEMÓRIA
+db = get_db_manager()
+
+@st.cache_data(ttl=3600)
+def carregar_opcoes_filtros():
+    logger.info("[CACHE MISS] Listas da barra lateral não estavam em cache. Consultando o banco PostgreSQL...")
+    try:
+        municipios = db.obter_municipios()
+        rubricas = db.obter_rubricas()
+        logger.info(f"[DB QUERY SUCCESS] Carregados {len(municipios)} municípios e {len(rubricas)} rubricas do banco.")
+        return municipios, rubricas
+    except Exception as e:
+        logger.error(f"[DB ERROR] Falha ao carregar opções de filtros: {e}")
+        return [], []
+
+lista_municipios, lista_crimes = carregar_opcoes_filtros()
+
+@st.cache_data(ttl=1800)
+def carregar_dados_filtrados_db(municipio: str, rubricas_tuple: tuple, limite: int):
+    logger.info(f"[CACHE MISS] Dados ausentes em memória. Executando consulta SQL no PostGIS para -> Município: {municipio} | Crimes: {rubricas_tuple}")
+    
+    df_resultado = db.buscar_dados_lazy_loading(
+        municipio=municipio, 
+        rubricas=list(rubricas_tuple) if rubricas_tuple else None, 
+        limite=limite
+    )
+    logger.info(f"[DB QUERY SUCCESS] Query executada com sucesso. Registros retornados: {len(df_resultado)}")
+    return df_resultado
+
 def gerar_pdf_bytes(texto_relatorio: str, municipio: str) -> bytes:
     pdf = FPDF()
     pdf.add_page()
@@ -85,15 +122,14 @@ def gerar_pdf_bytes(texto_relatorio: str, municipio: str) -> bytes:
     pdf.ln(5)
     
     pdf.set_font("Helvetica", size=10)
-    # Trata caracteres utf-8 incompatíveis com fontes padrões do fpdf
     texto_limpo = texto_relatorio.encode('latin-1', 'replace').decode('latin-1')
     pdf.multi_cell(0, 6, txt=texto_limpo)
     
     return bytes(pdf.output())
 
-# FUNÇÃO COM CACHE DO STREAMLIT PARA A API DO GEMINI
 @st.cache_data(show_spinner=False, ttl=3600)
 def chamar_gemini_com_cache(municipio: str, total_crimes: int, top_crimes_tuple: tuple, top_bairros_tuple: tuple, pico_horario: str) -> str:
+    logger.info(f"[AI CACHE MISS] Chamando API externa do Gemini (Cache Miss) para o município: {municipio}")
     copilot = SecurityCopilot()
     return copilot.gerar_relatorio_tatico(
         municipio=municipio,
@@ -103,64 +139,60 @@ def chamar_gemini_com_cache(municipio: str, total_crimes: int, top_crimes_tuple:
         pico_horario=pico_horario
     )
 
-df_real_completo = carregar_dados_reais_ssp()
-
-# Tenta carregar o modelo de IA
 model_path = os.path.join(Settings.BASE_DIR, "src", "models", "saved_models", "kmeans_spatial_model.pkl")
 kmeans_model = None
 if os.path.exists(model_path):
     kmeans_model = joblib.load(model_path)
 
-# FILTROS OPERACIONAIS NA BARRA LATERAL
 st.sidebar.markdown("### 🔍 Filtros Operacionais")
 
-if not df_real_completo.empty:
-    lista_municipios = sorted(df_real_completo['NOME_MUNICIPIO'].dropna().unique())
-    default_idx = lista_municipios.index('S.PAULO') if 'S.PAULO' in lista_municipios else 0
-    municipio_selecionado = st.sidebar.selectbox("Selecione o Município", lista_municipios, index=default_idx)
-    
-    lista_crimes = sorted(df_real_completo['RUBRICA'].dropna().unique())
-    crimes_selecionados = st.sidebar.multiselect(
-        "Natureza da Ocorrência", 
-        lista_crimes,
-        default=lista_crimes[:2]
+default_idx = lista_municipios.index('S.PAULO') if 'S.PAULO' in lista_municipios else 0
+municipio_selecionado = st.sidebar.selectbox("Selecione o Município", lista_municipios if lista_municipios else ["S.PAULO"], index=default_idx)
+
+crimes_padrao = lista_crimes[:2] if len(lista_crimes) >= 2 else lista_crimes
+crimes_selecionados = st.sidebar.multiselect(
+    "Natureza da Ocorrência", 
+    lista_crimes,
+    default=crimes_padrao
+)
+
+logger.info(f"[UI ACTION] Renderizando painel para o filtro -> Município: {municipio_selecionado} | Seleções: {len(crimes_selecionados)}")
+
+with st.spinner("Consultando dados espaciais no PostgreSQL..."):
+    try:
+        if carregar_dados_filtrados_db.has_cached_value(municipio_selecionado, tuple(crimes_selecionados), 15000):
+            logger.info(f"[CACHE HIT] Dados recuperados instantaneamente da RAM para -> Município: {municipio_selecionado} | Seleções: {len(crimes_selecionados)}")
+        else:
+            logger.info(f"[CACHE MISS] Dados não encontrados em cache para -> Município: {municipio_selecionado}")
+    except Exception:
+        pass
+
+    df_filtrado = carregar_dados_filtrados_db(
+        municipio=municipio_selecionado,
+        rubricas_tuple=tuple(crimes_selecionados),
+        limite=15000
     )
-else:
-    municipio_selecionado = "S.PAULO"
-    crimes_selecionados = []
 
-# Filtragem dos dados
-if not df_real_completo.empty:
-    df_filtrado = df_real_completo[df_real_completo['NOME_MUNICIPIO'] == municipio_selecionado]
-    if crimes_selecionados:
-        df_filtrado = df_filtrado[df_filtrado['RUBRICA'].isin(crimes_selecionados)]
-        
-    volumetria_atual = len(df_filtrado)
-    
-    if volumetria_atual > 2500:
-        df_amostra_mapa = df_filtrado.sample(n=2500, random_state=Settings.ML_RANDOM_STATE)
-    else:
-        df_amostra_mapa = df_filtrado
-else:
-    df_filtrado = pd.DataFrame()
-    df_amostra_mapa = pd.DataFrame()
-    volumetria_atual = 0
+volumetria_atual = len(df_filtrado)
 
-# --- PAINEL DE MÉTRICAS (KPI CARDS) ---
+if volumetria_atual > 2500:
+    df_amostra_mapa = df_filtrado.sample(n=2500, random_state=Settings.ML_RANDOM_STATE)
+else:
+    df_amostra_mapa = df_filtrado
+
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 kpi1.metric("Município Selecionado", municipio_selecionado)
 kpi2.metric("Ocorrências no Filtro", f"{volumetria_atual:,}".replace(",", "."))
-kpi3.metric("Total Base Limpa (SP)", "834.385")
+kpi3.metric("Repositório PostGIS", "Ativo & Normalizado")
 kpi4.metric("Status do Modelo IA", "Ativo (K-Means + Gemini)" if kmeans_model else "Offline")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- 1. SEÇÃO DO MAPA EXPANDIDO ---
-st.markdown("##### 📍 Mapa Espacial de Risco (Hotspots)")
+st.markdown("##### 📍 Mapa Espacial de Risco (Hotspots PostGIS)")
 
 if not df_amostra_mapa.empty:
-    centro_lat = df_amostra_mapa['LATITUDE'].mean()
-    centro_lon = df_amostra_mapa['LONGITUDE'].mean()
+    centro_lat = df_amostra_mapa['latitude'].mean()
+    centro_lon = df_amostra_mapa['longitude'].mean()
     zoom = 13 if municipio_selecionado in ['S.PAULO', 'CAMPINAS', 'SANTOS'] else 12
 else:
     centro_lat, centro_lon, zoom = -23.550520, -46.633308, 11
@@ -168,7 +200,7 @@ else:
 m = folium.Map(location=[centro_lat, centro_lon], zoom_start=zoom, tiles="OpenStreetMap")
 
 if not df_amostra_mapa.empty:
-    dados_calor = df_amostra_mapa[['LATITUDE', 'LONGITUDE']].values.tolist()
+    dados_calor = df_amostra_mapa[['latitude', 'longitude']].values.tolist()
     
     gradiente_personalizado = {
         0.25: '#4B0082',
@@ -186,7 +218,6 @@ if not df_amostra_mapa.empty:
         gradient=gradiente_personalizado
     ).add_to(m)
 
-# Renderiza o Mapa
 st_folium(
     m, 
     use_container_width=True, 
@@ -197,14 +228,12 @@ st_folium(
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# --- 2. SEÇÃO EXPANSÍVEL DE ESTATÍSTICAS E IA COPILOT ---
 with st.expander("📊 Clique aqui para abrir o Diagnóstico Analítico e Relatório da IA", expanded=False):
     if not df_filtrado.empty:
         col_g1, col_g2 = st.columns(2)
         
         with col_g1:
-            # GRÁFICO 1: Top Crimes
-            top_crimes_df = df_filtrado['RUBRICA'].value_counts().head(5).reset_index()
+            top_crimes_df = df_filtrado['rubrica'].value_counts().head(5).reset_index()
             top_crimes_df.columns = ['Crime', 'Quantidade']
             
             top_crimes_df['Crime_Curto'] = top_crimes_df['Crime'].apply(
@@ -234,9 +263,8 @@ with st.expander("📊 Clique aqui para abrir o Diagnóstico Analítico e Relat�
             st.plotly_chart(fig_barras, use_container_width=True)
 
         with col_g2:
-            # GRÁFICO 2: Distribuição Mensal
-            if 'MES' in df_filtrado.columns:
-                crimes_mes = df_filtrado['MES'].value_counts().sort_index().reset_index()
+            if 'mes' in df_filtrado.columns:
+                crimes_mes = df_filtrado['mes'].value_counts().sort_index().reset_index()
                 crimes_mes.columns = ['Mês', 'Ocorrências']
                 
                 mapa_meses = {
@@ -265,21 +293,19 @@ with st.expander("📊 Clique aqui para abrir o Diagnóstico Analítico e Relat�
 
         st.markdown("---")
         
-        # --- 🤖 MÓDULO INTELIGENTE: GERADOR DE BRIEFING TÁTICO COM CONTEXTO DE BAIRROS ---
         st.subheader("🤖 Assistente de Inteligência Policial (LLM Copilot)")
         
         top_crimes_lista = tuple(top_crimes_df['Crime'].tolist()[:3]) if not top_crimes_df.empty else ("Geral",)
         
-        # Extrai os 3 bairros com mais ocorrências no filtro
         top_bairros_lista = ("Bairros Diversos",)
-        if 'BAIRRO' in df_filtrado.columns:
-            bairros_top = df_filtrado['BAIRRO'].dropna().value_counts().head(3).index.tolist()
+        if 'bairro' in df_filtrado.columns:
+            bairros_top = df_filtrado['bairro'].dropna().value_counts().head(3).index.tolist()
             if bairros_top:
                 top_bairros_lista = tuple(bairros_top)
 
         pico_horario = "Período Noturno"
-        if 'HORA' in df_filtrado.columns:
-            hora_frequente = df_filtrado[df_filtrado['HORA'] != -1]['HORA'].mode()
+        if 'hora' in df_filtrado.columns:
+            hora_frequente = df_filtrado[df_filtrado['hora'] != -1]['hora'].mode()
             if not hora_frequente.empty:
                 h = hora_frequente.iloc[0]
                 pico_horario = f"Concentração elevada por volta das {h}:00h"
@@ -302,7 +328,6 @@ with st.expander("📊 Clique aqui para abrir o Diagnóstico Analítico e Relat�
                 )
                 st.session_state[chave_estado_relatorio] = relatorio_res
 
-        # Exibe o relatório salvo em memória e o Botão de Download em PDF
         if chave_estado_relatorio in st.session_state:
             texto_relatorio = st.session_state[chave_estado_relatorio]
             
@@ -311,8 +336,9 @@ with st.expander("📊 Clique aqui para abrir o Diagnóstico Analítico e Relat�
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Botão para baixar o relatório em PDF
             pdf_bytes = gerar_pdf_bytes(texto_relatorio, municipio_selecionado)
+            logger.info(f"[PDF EXPORT] Relatório PDF gerado em memória para o município: {municipio_selecionado}")
+            
             st.download_button(
                 label="📄 Baixar Relatório Tático em PDF",
                 data=pdf_bytes,

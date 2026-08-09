@@ -1,61 +1,104 @@
-import os
 import logging
+import os
 import pandas as pd
-from sqlalchemy import create_engine
-from config.settings import Settings
+from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
 
-log_format = "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
-logging.basicConfig(
-    level=logging.INFO,
-    format=log_format,
-    handlers=[
-        logging.FileHandler(os.path.join(Settings.LOG_DIR, "pipeline_ingestion.log"), encoding="utf-8"),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger("DatabaseManager")
-
+load_dotenv()
 
 class DatabaseManager:
-    """Gerencia a conexão e carga de dados no banco de dados PostgreSQL/PostGIS."""
-
     def __init__(self):
-        # Constrói a URI de conexão com o Postgres
-        self.db_url = (
-            f"postgresql://{Settings.DB_USER}:{Settings.DB_PASS}"
-            f"@{Settings.DB_HOST}:{Settings.DB_PORT}/{Settings.DB_NAME}"
-        )
-        self.engine = create_engine(self.db_url)
+        user = os.getenv("DB_USER", "postgres")
+        password = os.getenv("DB_PASS", "tcc_password_2026")
+        host = os.getenv("DB_HOST", "localhost")
+        port = os.getenv("DB_PORT", "5432")
+        db = os.getenv("DB_NAME", "criminal_db")
+        
+        self.engine = create_engine(f"postgresql://{user}:{password}@{host}:{port}/{db}")
 
-    def popular_banco_dados(self, df: pd.DataFrame) -> None:
-        """Insere o DataFrame tratado na tabela do PostgreSQL."""
-        logger.info("Iniciando a carga de dados no PostgreSQL/PostGIS...")
+    def popular_banco_dados(self, df: pd.DataFrame):
+        """Cria a tabela via Pandas (inferindo tipos corretos) e aplica Bulk Insert."""
+        print(f"Iniciando preparação de {len(df)} registros para o PostgreSQL...")
+
+        df_clean = df.drop_duplicates(subset=['NUM_BO']).copy()
+        
+        if 'DATA_OCORRENCIA_BO' in df_clean.columns:
+            df_clean['DATA_OCORRENCIA_BO'] = pd.to_datetime(df_clean['DATA_OCORRENCIA_BO'], errors='coerce')
+
+        df_clean.columns = [col.lower() for col in df_clean.columns]
+
         try:
-            # Garante que nomes de colunas fiquem em minúsculo para boa prática no Postgres
-            df_postgres = df.copy()
-            df_postgres.columns = [col.lower() for col in df_postgres.columns]
+            with self.engine.begin() as conn:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
+            
+            print("Gravando dados no PostgreSQL via Bulk Insert (isso pode levar alguns segundos)...")
+            with self.engine.begin() as conn:
+                df_clean.to_sql(
+                    'fatos_criminais', 
+                    conn, 
+                    if_exists='replace', 
+                    index=False, 
+                    method='multi', 
+                    chunksize=10000
+                )
 
-            # Envia o dataframe para a tabela 'ocorrencias_criminais'
-            df_postgres.to_sql(
-                name="ocorrencias_criminais",
-                con=self.engine,
-                if_exists="replace",  # Substitui a tabela se ela já existir
-                index=False,
-                chunksize=10000       # Insere em lotes de 10k para ser rápido na memória
-            )
-            logger.info(" Carga concluída com sucesso no PostgreSQL!")
+            print("Criando índices espaciais e de performance...")
+            with self.engine.begin() as conn:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fatos_municipio ON fatos_criminais (nome_municipio);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fatos_rubrica ON fatos_criminais (rubrica);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fatos_lat_long ON fatos_criminais (latitude, longitude);"))
+
+            print("[SUCESSO TOTAL] Banco populado e indexado com sucesso!")
         except Exception as e:
-            logger.error(f"Falha ao popular o banco de dados. Erro: {str(e)}")
+            print(f"[ERRO CRÍTICO] Falha ao popular o banco: {e}")
             raise e
 
+    def obter_municipios(self) -> list:
+        """Busca a lista distinta de municípios diretamente do banco."""
+        query = "SELECT DISTINCT nome_municipio FROM fatos_criminais WHERE nome_municipio IS NOT NULL ORDER BY nome_municipio;"
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(query), conn)
+        return df['nome_municipio'].tolist()
 
-if __name__ == "__main__":
-    # Teste isolado do script de banco
-    caminho_csv = os.path.join(Settings.BASE_DIR, "src", "processing", "dados_criminais_limpos.csv")
-    if os.path.exists(caminho_csv):
-        print("Carregando CSV limpo...")
-        df_limpo = pd.read_csv(caminho_csv)
-        db_manager = DatabaseManager()
-        db_manager.popular_banco_dados(df_limpo)
-    else:
-        print("Execute o main.py primeiro para gerar o CSV limpo.")
+    def obter_rubricas(self) -> list:
+        """Busca a lista distinta de naturezas de crime diretamente do banco."""
+        query = "SELECT DISTINCT rubrica FROM fatos_criminais WHERE rubrica IS NOT NULL ORDER BY rubrica;"
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(query), conn)
+        return df['rubrica'].tolist()
+
+    def buscar_dados_lazy_loading(self, municipio=None, rubricas=None, limite=15000) -> pd.DataFrame:
+        """
+        Lazy Loading otimizado: Consulta o PostgreSQL aplicando filtros 
+        por município e múltiplos tipos de crime, registrando a query diretamente no arquivo de log.
+        """
+        query = """
+            SELECT 
+                num_bo, data_ocorrencia_bo AS data_ocorrencia, hora_ocorrencia_bo AS hora_ocorrencia, 
+                ano, mes, dia, dia_semana, hora,
+                rubrica, nome_municipio, bairro,
+                latitude, longitude
+            FROM fatos_criminais
+            WHERE 1=1
+        """
+        params = {}
+        
+        if municipio:
+            query += " AND nome_municipio = :municipio"
+            params["municipio"] = municipio
+            
+        if rubricas:
+            query += " AND rubrica = ANY(:rubricas)"
+            params["rubricas"] = list(rubricas)
+            
+        query += f" LIMIT {limite};"
+        
+        logger = logging.getLogger("DatabaseManager")
+        logger.info(f"[SQL EXECUTADA NO POSTGIS]\nQuery: {query.strip()}\nParâmetros: {params}")
+        
+        try:
+            with self.engine.connect() as conn:
+                return pd.read_sql(text(query), conn, params=params)
+        except Exception as e:
+            logger.error(f"[DB ERROR] Falha ao executar query: {e}")
+            return pd.DataFrame()
