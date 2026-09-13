@@ -39,16 +39,17 @@ Plataforma analítica e preditiva desenvolvida para processar, enriquecer e extr
 
 A documentação detalhada do sistema está modularizada na pasta [`docs/`](docs/):
 
-| Documento | Assunto |
-| :--- | :--- |
-| [**`docs/pgsql.md`**](docs/pgsql.md) | Estrutura de tabelas, índices GiST, B-Tree, Materialized Views e Pooling |
-| [**`docs/cache.md`**](docs/cache.md) | Estratégias de Cache no Streamlit e Lazy Loading espacial do mapa |
-| [**`docs/modelos.md`**](docs/modelos.md) | Formulação matemática do preditor, equações Ridge e Intervalos de 95% |
-| [**`docs/copilot_ia.md`**](docs/copilot_ia.md) | Chat Lateral, Grounding no PostGIS, extração de entidades e fallback |
-| [**`docs/arquitetura.md`**](docs/arquitetura.md) | Diagrama de arquitetura, pipeline ETL (`clean_processor`) e testes |
-| [**`math.MD`**](math.MD) | Fundamentação teórica, álgebra linear e deduções completas |
-| [**`ANALISE_PROJETO_E_NOVAS_FEATS.md`**](ANALISE_PROJETO_E_NOVAS_FEATS.md) | Relatório de arquitetura e catálogo das novas funcionalidades |
-| [**`test.MD`**](test.MD) | Relatório de Teste e Validação de Software (TVS II) |
+| Documento                                                                  | Assunto                                                                  |
+| :------------------------------------------------------------------------- | :----------------------------------------------------------------------- |
+| [**`docs/pgsql.md`**](docs/pgsql.md)                                       | Estrutura de tabelas, índices GiST, B-Tree, Materialized Views e Pooling |
+| [**`docs/cache.md`**](docs/cache.md)                                       | Estratégias de Cache no Streamlit e Lazy Loading espacial do mapa        |
+| [**`docs/modelos.md`**](docs/modelos.md)                                   | Formulação matemática do preditor, equações Ridge e Intervalos de 95%    |
+| [**`docs/copilot_ia.md`**](docs/copilot_ia.md)                             | Chat Lateral, Grounding no PostGIS, extração de entidades e fallback     |
+| [**`docs/arquitetura.md`**](docs/arquitetura.md)                           | Diagrama de arquitetura, pipeline ETL (`clean_processor`) e testes       |
+| [**`math.MD`**](math.MD)                                                   | Fundamentação teórica, álgebra linear e deduções completas               |
+| [**`RT-TDS-2026-018_v0.4(1).docx`**](RT-TDS-2026-018_v0.4(1).docx)       | Relatório Técnico Oficial do TCC (UniSalesiano) 100% adaptado            |
+| [**`ANALISE_PROJETO_E_NOVAS_FEATS.md`**](ANALISE_PROJETO_E_NOVAS_FEATS.md) | Relatório de arquitetura e catálogo das novas funcionalidades            |
+| [**`test.MD`**](test.MD)                                                   | Relatório de Teste e Validação de Software (TVS II)                      |
 
 ---
 
@@ -82,15 +83,18 @@ A documentação detalhada do sistema está modularizada na pasta [`docs/`](docs
 ## 🚀 Como Executar o Projeto
 
 ### 1. Pré-requisitos
+
 - Python 3.12+
 - Docker e Docker Compose instalados
 
 ### 2. Iniciar o Banco de Dados PostGIS
+
 ```bash
 docker-compose up -d
 ```
 
 ### 3. Configurar o Ambiente Virtual
+
 ```bash
 python3 -m venv venv
 source venv/bin/activate
@@ -98,7 +102,9 @@ pip install -r requirements.txt
 ```
 
 ### 4. Configurar as Variáveis de Ambiente (`.env`)
+
 Certifique-se de que o arquivo `.env` contenha as credenciais do banco e a chave da API Gemini:
+
 ```env
 DB_USER=postgres
 DB_PASS=tcc_password_2026
@@ -109,9 +115,11 @@ GEMINI_API_KEY=sua_chave_gemini_aqui
 ```
 
 ### 5. Iniciar o Dashboard Streamlit
+
 ```bash
 ./venv/bin/streamlit run src/visualization/app.py
 ```
+
 O painel estará disponível no seu navegador em `http://localhost:8501`.
 
 ---
@@ -125,6 +133,7 @@ A suíte conta com **26 testes unitários** automatizados cobrindo pipeline de l
 ```
 
 **Resultado:**
+
 ```text
 Ran 26 tests in 0.134s
 OK (100% de aprovação)

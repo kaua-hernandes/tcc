@@ -66,7 +66,9 @@ Testes unitários construídos sob a metodologia TDD (Test-Driven Development) p
 - `tests/test_ai_copilot.py` (6 testes): Extração de entidades, fallback resiliente e integração PostGIS + Gemini.
 
 Para rodar todos os testes:
+
 ```bash
 ./venv/bin/python -m unittest discover tests -v
 ```
-*(Tempo médio de execução: ~0.13s com 100% de aprovação).*
+
+_(Tempo médio de execução: ~0.13s com 100% de aprovação)._

@@ -37,17 +37,18 @@ Intervalo de Confiança a 95% ($Z = 1.96$):
 $$\text{IC}_{\text{Inferior}} = \max\left(0, \; \hat{y} - 1.96 \cdot \text{SE}(h)\right)$$
 $$\text{IC}_{\text{Superior}} = \hat{y} + 1.96 \cdot \text{SE}(h)$$
 
-*(A função $\max(0, \cdot)$ assegura que o modelo nunca preveja volumes negativos de crimes).*
+_(A função $\max(0, \cdot)$ assegura que o modelo nunca preveja volumes negativos de crimes)._
 
 ---
 
 ## 4. Métricas de Validação Exportadas
 
 O preditor calcula e expõe 5 métricas formais para a banca examinadora:
+
 - **$R^2$:** Coeficiente de Determinação (proporção da variância explicada).
 - **RMSE:** Raiz do Erro Quadrático Médio.
 - **MAE:** Erro Médio Absoluto de boletins.
 - **MAPE:** Erro Percentual Médio Absoluto.
 - **AIC:** Critério de Informação de Akaike (qualidade relativa penalizando parâmetros).
 
-*(Para deduções completas e fundamentação teórica detalhada, consulte [`math.MD`](../math.MD)).*
+_(Para deduções completas e fundamentação teórica detalhada, consulte [`math.MD`](../math.MD))._

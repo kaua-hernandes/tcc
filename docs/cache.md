@@ -17,10 +17,12 @@ Resumo das técnicas aplicadas para garantir que o dashboard Streamlit carregue 
 ## 2. Gerenciamento de Cache no Streamlit
 
 ### A. Cache de Recursos Globais (`@st.cache_resource`)
+
 - Utilizado na função `get_db_manager()`.
 - **Objetivo:** Garante que o `DatabaseManager` e o pool de 15 conexões com o PostgreSQL sejam criados uma única vez como Singleton, sobrevivendo a recarregamentos de página (evita estouro de conexões no banco).
 
 ### B. Cache de Dados com Expiração (`@st.cache_data`)
+
 - `carregar_opcoes_filtros()` (`ttl=3600`): Cache de 1 hora para a lista de municípios e crimes, consultados prioritariamente da Materialized View.
 - `carregar_coordenadas_mapa_lazy()` (`ttl=1800`): Cache de 30 minutos das coordenadas dos pontos com base nos filtros selecionados.
 - `carregar_dados_filtrados_db()` (`ttl=1800`): Cache de 30 minutos para os dados tabulares analíticos.
