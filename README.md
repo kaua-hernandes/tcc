@@ -70,7 +70,7 @@ A documentação detalhada do sistema está modularizada na pasta [`docs/`](docs
 │   ├── models/              # Preditor estatístico (Ridge+Fourier) e Copiloto IA
 │   ├── processing/          # Pipeline ETL, limpeza e engenharia de atributos
 │   └── visualization/       # Dashboard interativo em Streamlit (app.py)
-├── tests/                   # Suíte de testes unitários automatizados (TDD)
+├── tests/                   # Suíte de testes unitários automatizados
 ├── docker-compose.yml       # Orquestração do container PostgreSQL / PostGIS
 ├── math.MD                  # Dedução matemática das equações do modelo preditivo
 ├── README.md                # Apresentação do projeto e instruções

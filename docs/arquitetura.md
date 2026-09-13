@@ -58,7 +58,7 @@ O módulo `src/processing/clean_processor.py` executa o tratamento dos dados bru
 
 ## 3. Suíte de Testes Automatizados (26 Testes)
 
-Testes unitários construídos sob a metodologia TDD (Test-Driven Development) para validação da disciplina de TVS II:
+Suíte de testes unitários automatizados para garantia de qualidade e integridade do software:
 
 - `tests/test_processing.py` (6 testes): Validação do pipeline ETL, filtros geográficos e deduplicação.
 - `tests/test_ingestion.py` (5 testes): Prevenção de SQL Injection, busca por raio `ST_DWithin` e Lazy Loading.
