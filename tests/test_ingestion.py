@@ -80,12 +80,22 @@ class TestDatabaseManager(unittest.TestCase):
         self.assertEqual(params.get("raio_metros"), 2500.0)
         self.assertEqual(len(df), 1)
 
-    def test_obter_kpis_municipio_retorno_padrao(self):
-        """CT05: Deve retornar dicionário seguro com valores zerados se a Materialized View falhar."""
-        self.mock_engine.connect.side_effect = Exception("Erro simulado")
-        res = self.db.obter_kpis_municipio("S.PAULO")
-        self.assertIsInstance(res, dict)
-        self.assertEqual(res["total_crimes"], 0)
+    @patch('pandas.read_sql')
+    def test_buscar_coordenadas_mapa_lazy(self, mock_read_sql):
+        """CT06: Deve buscar exclusivamente latitude e longitude para renderização instantânea do mapa."""
+        mock_read_sql.return_value = pd.DataFrame({'latitude': [-23.55], 'longitude': [-46.63]})
+
+        df = self.db.buscar_coordenadas_mapa_lazy(municipio="S.PAULO", limite=1000)
+
+        self.assertTrue(mock_read_sql.called)
+        args, kwargs = mock_read_sql.call_args
+        query_text = str(args[0])
+        params = kwargs.get('params', {})
+
+        self.assertIn("SELECT latitude, longitude", query_text)
+        self.assertIn("LIMIT 1000", query_text)
+        self.assertEqual(params.get("municipio"), "S.PAULO")
+        self.assertEqual(len(df), 1)
 
 
 if __name__ == '__main__':

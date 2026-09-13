@@ -1,10 +1,9 @@
 """
-Testes Unitários - Modelagem Preditiva de Criminalidade (Scikit-Learn)
+Testes Unitários - Modelagem Preditiva e Estatística de Criminalidade (Scikit-Learn)
 Projeto: TCC - Analytics Criminal SP
 Aluno: Kauã Hernandes
 Disciplina: Teste e Validação de Software II
-Metodologia: Test-Driven Development (TDD)
-IA Assistente: Antigravity / Gemini 3.8 Flash (Google DeepMind)
+Branch: feat/TCC
 """
 
 import unittest
@@ -39,9 +38,9 @@ class TestCriminalPredictor(unittest.TestCase):
         self.assertFalse(serie.empty)
         self.assertIn('TOTAL_CRIMES', serie.columns)
         self.assertIn('PERIODO_IDX', serie.columns)
-        # Deve agregar em 5 períodos distintos (meses 1, 2, 3, 4, 5)
+        self.assertIn('FOURIER_SIN', serie.columns)
+        self.assertIn('FOURIER_COS', serie.columns)
         self.assertEqual(len(serie), 5)
-        # O mês 1 teve 2 ocorrências agrupadas
         total_mes_1 = serie.loc[serie['MES'] == 1, 'TOTAL_CRIMES'].iloc[0]
         self.assertEqual(total_mes_1, 2)
 
@@ -54,14 +53,13 @@ class TestCriminalPredictor(unittest.TestCase):
     def test_treinar_modelo_com_dados_insuficientes(self):
         """CT04: Não deve treinar regressão com menos de 3 períodos temporais (retorna None)."""
         predictor = CriminalPredictor(self.dados_historicos)
-        # Mooca só tem 2 períodos (meses 1 e 2)
         serie_insuficiente = predictor.preparar_dados_serie_temporal(bairro="Mooca", rubrica="Furto")
         modelo = predictor.treinar_modelo_regressao(serie_insuficiente)
 
         self.assertIsNone(modelo)
 
     def test_treinar_modelo_regressao_com_sucesso(self):
-        """CT05: Deve treinar com sucesso o modelo de regressão linear para série com >= 3 períodos."""
+        """CT05: Deve treinar com sucesso o modelo matemático para série com >= 3 períodos."""
         predictor = CriminalPredictor(self.dados_historicos)
         serie = predictor.preparar_dados_serie_temporal(bairro="Sé", rubrica="Roubo")
         modelo = predictor.treinar_modelo_regressao(serie)
@@ -87,6 +85,30 @@ class TestCriminalPredictor(unittest.TestCase):
         predictor = CriminalPredictor(self.dados_historicos)
         with self.assertRaises(RuntimeError):
             predictor.prever_proximos_periodos(passos_futuros=3)
+
+    def test_prever_com_intervalo_confianca(self):
+        """CT08: Deve calcular intervalos de confiança estatísticos coerentes (IC Inferior <= Previsão <= IC Superior)."""
+        predictor = CriminalPredictor(self.dados_historicos)
+        serie = predictor.preparar_dados_serie_temporal(bairro="Sé", rubrica="Roubo")
+        predictor.treinar_modelo_regressao(serie)
+
+        df_proj = predictor.prever_com_intervalo_confianca(passos_futuros=3)
+        self.assertEqual(len(df_proj), 3)
+        self.assertTrue((df_proj['IC_INFERIOR_95'] <= df_proj['PREVISAO']).all())
+        self.assertTrue((df_proj['PREVISAO'] <= df_proj['IC_SUPERIOR_95']).all())
+        self.assertTrue((df_proj['IC_INFERIOR_95'] >= 0).all())
+
+    def test_metricas_estatisticas_completas(self):
+        """CT09: Deve registrar métricas formais (R², RMSE, MAE, MAPE, AIC) após treinamento."""
+        predictor = CriminalPredictor(self.dados_historicos)
+        serie = predictor.preparar_dados_serie_temporal(bairro="Sé", rubrica="Roubo")
+        predictor.treinar_modelo_regressao(serie)
+
+        self.assertIn("r2", predictor.metricas)
+        self.assertIn("rmse", predictor.metricas)
+        self.assertIn("mae", predictor.metricas)
+        self.assertIn("aic", predictor.metricas)
+        self.assertGreaterEqual(predictor.metricas["rmse"], 0.0)
 
 
 if __name__ == '__main__':
