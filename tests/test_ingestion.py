@@ -1,10 +1,9 @@
 """
-Testes Unitários - Camada de Acesso e Consultas PostGIS (Lazy Loading)
+Testes Unitários - Camada de Acesso e Consultas PostGIS (Lazy Loading & Spatial Querying)
 Projeto: TCC - Analytics Criminal SP
 Aluno: Kauã Hernandes
 Disciplina: Teste e Validação de Software II
-Metodologia: Test-Driven Development (TDD)
-IA Assistente: Antigravity / Gemini 3.8 Flash (Google DeepMind)
+Branch: feat/TCC
 """
 
 import unittest
@@ -28,7 +27,6 @@ class TestDatabaseManager(unittest.TestCase):
 
         df = self.db.buscar_dados_lazy_loading(municipio="Campinas", limite=500)
 
-        # Verifica se o pandas.read_sql foi chamado
         self.assertTrue(mock_read_sql.called)
         args, kwargs = mock_read_sql.call_args
         query_text = str(args[0])
@@ -63,6 +61,31 @@ class TestDatabaseManager(unittest.TestCase):
 
         self.assertIsInstance(df, pd.DataFrame)
         self.assertTrue(df.empty)
+
+    @patch('pandas.read_sql')
+    def test_busca_por_raio_espacial_postgis(self, mock_read_sql):
+        """CT04: Deve utilizar a função ST_DWithin geodésica do PostGIS com raio em metros parametrizado."""
+        mock_read_sql.return_value = pd.DataFrame({'num_bo': ['BO-300'], 'distancia_metros': [450.2]})
+
+        df = self.db.buscar_por_raio_espacial(latitude=-23.5505, longitude=-46.6333, raio_km=2.5)
+
+        self.assertTrue(mock_read_sql.called)
+        args, kwargs = mock_read_sql.call_args
+        query_text = str(args[0])
+        params = kwargs.get('params', {})
+
+        self.assertIn("ST_DWithin", query_text)
+        self.assertEqual(params.get("lat"), -23.5505)
+        self.assertEqual(params.get("lon"), -46.6333)
+        self.assertEqual(params.get("raio_metros"), 2500.0)
+        self.assertEqual(len(df), 1)
+
+    def test_obter_kpis_municipio_retorno_padrao(self):
+        """CT05: Deve retornar dicionário seguro com valores zerados se a Materialized View falhar."""
+        self.mock_engine.connect.side_effect = Exception("Erro simulado")
+        res = self.db.obter_kpis_municipio("S.PAULO")
+        self.assertIsInstance(res, dict)
+        self.assertEqual(res["total_crimes"], 0)
 
 
 if __name__ == '__main__':
