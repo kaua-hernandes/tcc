@@ -167,6 +167,29 @@ st.markdown("""
             border-bottom: 2px solid #2563eb !important;
             background: transparent !important;
         }
+
+        /* Chat na Barra Lateral e Painel */
+        div[data-testid="stChatMessage"] {
+            background: #ffffff !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 8px !important;
+            padding: 8px 12px !important;
+            margin-bottom: 6px !important;
+            font-size: 0.88rem !important;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02) !important;
+        }
+        .chat-badge {
+            font-size: 0.72rem;
+            background: #ecfdf5;
+            color: #059669;
+            border: 1px solid #a7f3d0;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -244,33 +267,118 @@ def chamar_gemini_com_cache(municipio: str, total_crimes: int, top_crimes_tuple:
         pico_horario=pico_horario
     )
 
-# --- SIDEBAR DE FILTROS MINIMALISTA ---
-st.sidebar.markdown("### 🔍 Filtros")
+# --- INICIALIZAÇÃO DO ESTADO DO CHAT IA ---
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Olá! Sou o **Copiloto IA Criminal** integrado à base de 834k registros do PostGIS. "
+                "Pergunte-me qualquer informação sobre crimes, bairros ou cidades do Estado de SP!"
+            )
+        }
+    ]
 
-default_idx = lista_municipios.index('S.PAULO') if 'S.PAULO' in lista_municipios else 0
-municipio_selecionado = st.sidebar.selectbox(
-    "Município", 
-    lista_municipios if lista_municipios else ["S.PAULO"], 
-    index=default_idx
-)
+# --- SIDEBAR: FILTROS & CHAT LATERAL COM IA ---
+with st.sidebar.expander("⚙️ Filtros do Painel & Região", expanded=False):
+    default_idx = lista_municipios.index('S.PAULO') if 'S.PAULO' in lista_municipios else 0
+    municipio_selecionado = st.selectbox(
+        "Município", 
+        lista_municipios if lista_municipios else ["S.PAULO"], 
+        index=default_idx,
+        key="filtro_municipio"
+    )
 
-crimes_padrao = lista_crimes[:2] if len(lista_crimes) >= 2 else lista_crimes
-crimes_selecionados = st.sidebar.multiselect(
-    "Natureza do Crime", 
-    lista_crimes,
-    default=crimes_padrao
-)
+    crimes_padrao = lista_crimes[:2] if len(lista_crimes) >= 2 else lista_crimes
+    crimes_selecionados = st.multiselect(
+        "Natureza do Crime", 
+        lista_crimes,
+        default=crimes_padrao,
+        key="filtro_crimes"
+    )
 
-limite_registros = st.sidebar.select_slider(
-    "Volume de Amostragem Analítica",
-    options=[2500, 5000, 10000, 15000],
-    value=5000
-)
+    limite_registros = st.select_slider(
+        "Volume de Amostragem Analítica",
+        options=[2500, 5000, 10000, 15000],
+        value=5000,
+        key="filtro_limite"
+    )
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("#### Configuração do Mapa")
-amostragem_mapa = st.sidebar.slider("Amostragem de Pontos", 500, 5000, 2500, step=500)
-tipo_mapa = st.sidebar.selectbox("Camada de Mapa", ["OpenStreetMap", "CartoDB positron", "CartoDB dark_matter"], index=0)
+    st.markdown("---")
+    st.caption("Configuração do Mapa")
+    amostragem_mapa = st.slider("Amostragem de Pontos", 500, 5000, 2500, step=500, key="filtro_amostra_mapa")
+    tipo_mapa = st.selectbox("Camada de Mapa", ["OpenStreetMap", "CartoDB positron", "CartoDB dark_matter"], index=0, key="filtro_tipo_mapa")
+
+# Se os widgets não foram renderizados (fallback de segurança)
+if 'municipio_selecionado' not in locals():
+    municipio_selecionado = 'S.PAULO'
+if 'crimes_selecionados' not in locals():
+    crimes_selecionados = lista_crimes[:2] if len(lista_crimes) >= 2 else lista_crimes
+if 'limite_registros' not in locals():
+    limite_registros = 5000
+if 'amostragem_mapa' not in locals():
+    amostragem_mapa = 2500
+if 'tipo_mapa' not in locals():
+    tipo_mapa = "OpenStreetMap"
+
+# Cabeçalho do Chat na Barra Lateral
+st.sidebar.markdown(f"""
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px; margin-bottom: 2px;">
+        <span style="font-weight: 700; font-size: 1.02rem; color: #0f172a;">💬 Copiloto IA Criminal</span>
+        <span class="chat-badge">● Online</span>
+    </div>
+    <div style="font-size: 0.76rem; color: #64748b; margin-bottom: 8px;">
+        Contexto Ativo: <strong style="color: #2563eb;">{municipio_selecionado}</strong> (834k dados)
+    </div>
+""", unsafe_allow_html=True)
+
+# Atalhos Rápidos para Perguntas Frequentes
+col_s1, col_s2 = st.sidebar.columns(2)
+prompt_clicado = None
+if col_s1.button("🚨 Pinheiros", use_container_width=True, key="btn_sug_pinheiros"):
+    prompt_clicado = "Quais são os dados de roubo no bairro Pinheiros em São Paulo?"
+if col_s2.button("📊 Sé (Furto)", use_container_width=True, key="btn_sug_se"):
+    prompt_clicado = "Quantos furtos ocorreram no bairro da Sé?"
+
+col_s3, col_s4 = st.sidebar.columns(2)
+if col_s3.button("🏙️ Campinas", use_container_width=True, key="btn_sug_campinas"):
+    prompt_clicado = "Quais os bairros com mais crimes em Campinas?"
+if col_s4.button("🧹 Limpar", use_container_width=True, key="btn_limpar_sidebar"):
+    st.session_state.chat_history = [
+        {"role": "assistant", "content": "Conversa reiniciada. Qual informação criminal de SP você deseja consultar?"}
+    ]
+    st.rerun()
+
+# Container com scroll para o histórico de chat lateral
+chat_lateral_container = st.sidebar.container(height=360)
+with chat_lateral_container:
+    for msg in st.session_state.chat_history:
+        avatar_icon = "👮" if msg["role"] == "assistant" else "👤"
+        with st.chat_message(msg["role"], avatar=avatar_icon):
+            st.markdown(msg["content"])
+
+# Input de chat na barra lateral
+prompt_sidebar = st.sidebar.chat_input("Pergunte ao Copiloto IA...", key="sidebar_chat_input")
+
+# Disparo da IA ao receber mensagem ou clique em atalho
+prompt_ativo = prompt_sidebar or prompt_clicado
+if prompt_ativo:
+    st.session_state.chat_history.append({"role": "user", "content": prompt_ativo})
+    with chat_lateral_container:
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(prompt_ativo)
+        with st.chat_message("assistant", avatar="👮"):
+            with st.spinner("Consultando inteligência PostGIS + IA..."):
+                copilot = SecurityCopilot()
+                resposta_ai = copilot.conversar_chat(
+                    mensagem=prompt_ativo,
+                    historico=st.session_state.chat_history,
+                    municipio_atual=municipio_selecionado,
+                    db=db
+                )
+                st.markdown(resposta_ai)
+    st.session_state.chat_history.append({"role": "assistant", "content": resposta_ai})
+    st.rerun()
 
 # --- CARREGAMENTO LAZY: COORDENADAS + DADOS TABULARES ---
 with st.spinner("Carregando inteligência de dados..."):
@@ -613,39 +721,101 @@ with tab_predicao:
                 st.warning("Amostragem histórica insuficiente (< 3 meses) para este bairro/crime.")
 
 # ==========================================
-# ABA 4: COPILOTO TÁTICO IA (GEMINI)
+# ABA 4: CENTRAL DE INTELIGÊNCIA & COPILOTO IA
 # ==========================================
 with tab_copilot:
-    top_crimes_lista = tuple(df_filtrado['rubrica'].value_counts().head(3).index.tolist()) if not df_filtrado.empty else ("Geral",)
-    top_bairros_lista = tuple(df_filtrado['bairro'].dropna().value_counts().head(3).index.tolist()) if not df_filtrado.empty and 'bairro' in df_filtrado.columns and not df_filtrado['bairro'].dropna().empty else ("Bairros Diversos",)
-    
-    chave_relatorio = f"rel_{municipio_selecionado}_{len(crimes_selecionados)}"
-    
-    if st.button("Gerar Relatório de Inteligência com IA", key="btn_ai"):
-        with st.spinner("Gerando diagnóstico analítico com o Gemini..."):
-            relatorio_res = chamar_gemini_com_cache(
-                municipio=municipio_selecionado,
-                total_crimes=volumetria_atual,
-                top_crimes_tuple=top_crimes_lista,
-                top_bairros_tuple=top_bairros_lista,
-                pico_horario=horario_pico
-            )
-            st.session_state[chave_relatorio] = relatorio_res
+    subtab_chat, subtab_relatorio = st.tabs([
+        "💬 Conversação Ampla (Chat IA)", 
+        "📑 Gerador de Briefing Tático Oficial (PDF)"
+    ])
 
-    if chave_relatorio in st.session_state:
-        texto_relatorio = st.session_state[chave_relatorio]
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(f'<div class="ai-box">{texto_relatorio}</div>', unsafe_allow_html=True)
+    with subtab_chat:
+        col_c1, col_c2 = st.columns([3, 2])
+        with col_c1:
+            st.markdown(f"""
+                <div style="margin-bottom: 8px;">
+                    <strong style="color: #0f172a; font-size: 1.05rem;">Assessor Tático de Inteligência Criminal</strong><br>
+                    <span style="color: #64748b; font-size: 0.84rem;">
+                        Consulte dados de bairros, cidades e crimes com cruzamento analítico no PostGIS (834k dados).
+                    </span>
+                </div>
+            """, unsafe_allow_html=True)
+        with col_c2:
+            transcricao_chat = "\n\n".join([f"[{m['role'].upper()}]:\n{m['content']}" for m in st.session_state.chat_history])
+            st.download_button(
+                label="📥 Baixar Histórico da Conversa (.txt)",
+                data=transcricao_chat,
+                file_name=f"Conversa_Copiloto_{municipio_selecionado}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+
+        chat_main_container = st.container(height=480)
+        with chat_main_container:
+            for msg in st.session_state.chat_history:
+                avatar_icon = "👮" if msg["role"] == "assistant" else "👤"
+                with st.chat_message(msg["role"], avatar=avatar_icon):
+                    st.markdown(msg["content"])
+
+        prompt_main = st.chat_input("Pergunte ao Copiloto IA sobre qualquer bairro, cidade ou crime de SP...", key="main_chat_input")
+        if prompt_main:
+            st.session_state.chat_history.append({"role": "user", "content": prompt_main})
+            with chat_main_container:
+                with st.chat_message("user", avatar="👤"):
+                    st.markdown(prompt_main)
+                with st.chat_message("assistant", avatar="👮"):
+                    with st.spinner("Consultando inteligência PostGIS e processando resposta..."):
+                        copilot = SecurityCopilot()
+                        resp_main = copilot.conversar_chat(
+                            mensagem=prompt_main,
+                            historico=st.session_state.chat_history,
+                            municipio_atual=municipio_selecionado,
+                            db=db
+                        )
+                        st.markdown(resp_main)
+            st.session_state.chat_history.append({"role": "assistant", "content": resp_main})
+            st.rerun()
+
+    with subtab_relatorio:
+        st.markdown(f"""
+            <div style="margin-bottom: 12px;">
+                <strong style="color: #0f172a; font-size: 1.05rem;">Briefing Tático Operacional Reservado (2025)</strong><br>
+                <span style="color: #64748b; font-size: 0.84rem;">
+                    Gera documento formal direcionado ao Comando de Policiamento de <strong>{municipio_selecionado}</strong>.
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
+
+        top_crimes_lista = tuple(df_filtrado['rubrica'].value_counts().head(3).index.tolist()) if not df_filtrado.empty else ("Geral",)
+        top_bairros_lista = tuple(df_filtrado['bairro'].dropna().value_counts().head(3).index.tolist()) if not df_filtrado.empty and 'bairro' in df_filtrado.columns and not df_filtrado['bairro'].dropna().empty else ("Bairros Diversos",)
         
-        st.markdown("<br>", unsafe_allow_html=True)
-        pdf_bytes = gerar_pdf_bytes(texto_relatorio, municipio_selecionado)
+        chave_relatorio = f"rel_{municipio_selecionado}_{len(crimes_selecionados)}"
         
-        st.download_button(
-            label="Baixar Relatório em PDF",
-            data=pdf_bytes,
-            file_name=f"Relatorio_{municipio_selecionado}.pdf",
-            mime="application/pdf"
-        )
+        if st.button("Gerar Briefing Tático Oficial com IA", key="btn_ai"):
+            with st.spinner("Gerando diagnóstico analítico reservado com o Gemini..."):
+                relatorio_res = chamar_gemini_com_cache(
+                    municipio=municipio_selecionado,
+                    total_crimes=volumetria_atual,
+                    top_crimes_tuple=top_crimes_lista,
+                    top_bairros_tuple=top_bairros_lista,
+                    pico_horario=horario_pico
+                )
+                st.session_state[chave_relatorio] = relatorio_res
+
+        if chave_relatorio in st.session_state:
+            texto_relatorio = st.session_state[chave_relatorio]
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown(f'<div class="ai-box">{texto_relatorio}</div>', unsafe_allow_html=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            pdf_bytes = gerar_pdf_bytes(texto_relatorio, municipio_selecionado)
+            
+            st.download_button(
+                label="Baixar Relatório em PDF",
+                data=pdf_bytes,
+                file_name=f"Relatorio_{municipio_selecionado}.pdf",
+                mime="application/pdf"
+            )
 
 # ==========================================
 # ABA 5: CENTRAL DE PERFORMANCE POSTGIS
