@@ -47,7 +47,7 @@ A documentação detalhada do sistema está modularizada na pasta [`docs/`](docs
 | [**`docs/copilot_ia.md`**](docs/copilot_ia.md)                             | Chat Lateral, Grounding no PostGIS, extração de entidades e fallback     |
 | [**`docs/arquitetura.md`**](docs/arquitetura.md)                           | Diagrama de arquitetura, pipeline ETL (`clean_processor`) e testes       |
 | [**`math.MD`**](math.MD)                                                   | Fundamentação teórica, álgebra linear e deduções completas               |
-| [**`RT-TDS-2026-018_v0.4(1).docx`**](RT-TDS-2026-018_v0.4(1).docx)       | Relatório Técnico Oficial do TCC (UniSalesiano) 100% adaptado            |
+| [**`RT-TDS-2026-018_v0.4(1).docx`**](<RT-TDS-2026-018_v0.4(1).docx>)       | Relatório Técnico Oficial do TCC (UniSalesiano) 100% adaptado            |
 | [**`ANALISE_PROJETO_E_NOVAS_FEATS.md`**](ANALISE_PROJETO_E_NOVAS_FEATS.md) | Relatório de arquitetura e catálogo das novas funcionalidades            |
 | [**`test.MD`**](test.MD)                                                   | Relatório de Teste e Validação de Software (TVS II)                      |
 
