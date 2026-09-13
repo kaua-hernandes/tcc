@@ -258,7 +258,7 @@ limite_registros = st.sidebar.select_slider(
 st.sidebar.markdown("---")
 st.sidebar.markdown("#### 🧭 Parâmetros do PostGIS")
 amostragem_mapa = st.sidebar.slider("Amostragem no Mapa de Calor", 500, 5000, 2500, step=500)
-tipo_mapa = st.sidebar.selectbox("Camada Cartográfica", ["CartoDB positron", "OpenStreetMap", "CartoDB dark_matter"])
+tipo_mapa = st.sidebar.selectbox("Camada Cartográfica", ["OpenStreetMap", "CartoDB positron", "CartoDB dark_matter"], index=0)
 
 # --- EXECUÇÃO DA CONSULTA COM TELEMETRIA ---
 with st.spinner("Consultando dados com índices PostGIS..."):
