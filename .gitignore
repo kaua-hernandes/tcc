@@ -6,3 +6,8 @@ src/processing/dados_criminais_limpos.csv
 
 __pycache__/
 *.pyc
+logs/*.log
+*.log
+
+logs/*.log
+*.log

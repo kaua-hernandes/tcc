@@ -24,6 +24,7 @@ logger = logging.getLogger("StreamlitApp")
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import joblib
 import folium
 import plotly.express as px
@@ -31,6 +32,7 @@ from streamlit_folium import st_folium
 from folium.plugins import HeatMap
 from fpdf import FPDF
 from src.models.ai_copilot import SecurityCopilot
+from src.models.predictor import CriminalPredictor
 from src.ingestion.database import DatabaseManager
 
 st.set_page_config(page_title="Analytics Criminal SP", layout="wide", initial_sidebar_state="expanded")
@@ -228,7 +230,7 @@ st_folium(
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-with st.expander("📊 Clique aqui para abrir o Diagnóstico Analítico e Relatório da IA", expanded=False):
+with st.expander("📊 Clique aqui para abrir o Diagnóstico Analítico, Relatório da IA e Previsão Preditiva", expanded=False):
     if not df_filtrado.empty:
         col_g1, col_g2 = st.columns(2)
         
@@ -290,6 +292,81 @@ with st.expander("📊 Clique aqui para abrir o Diagnóstico Analítico e Relat�
                     plot_bgcolor='rgba(0,0,0,0)'
                 )
                 st.plotly_chart(fig_linha, use_container_width=True)
+
+        st.markdown("---")
+        
+        # --- SEÇÃO DE ANÁLISE PREDITIVA (SCI KIT-LEARN) ---
+        st.subheader("📈 Projeção Preditiva de Criminalidade (Scikit-learn)")
+        
+        col_p1, col_p2 = st.columns(2)
+        bairros_disponiveis = df_filtrado['bairro'].dropna().unique().tolist() if 'bairro' in df_filtrado.columns else []
+        
+        with col_p1:
+            bairro_escolhido = st.selectbox("Selecione o Bairro para Previsão", bairros_disponiveis if bairros_disponiveis else ["GERAL"])
+            
+        with col_p2:
+            rubrica_escolhida = st.selectbox("Selecione a Rubrica para Previsão", crimes_selecionados if crimes_selecionados else ["Geral"])
+
+        if st.button("🚀 Executar Modelo Preditivo"):
+            with st.spinner("Treinando modelo estatístico com Scikit-learn..."):
+                preditor = CriminalPredictor(df_filtrado)
+                serie_hist = preditor.preparar_dados_serie_temporal(bairro=bairro_escolhido, rubrica=rubrica_escolhida)
+                
+                if not serie_hist.empty and len(serie_hist) >= 3:
+                    modelo = preditor.treinar_modelo_regressao(serie_hist)
+                    
+                    if modelo:
+                        passos = 3
+                        ultimo_idx = serie_hist['PERIODO_IDX'].max()
+                        futuro_indices = np.arange(ultimo_idx + 1, ultimo_idx + 1 + passos).reshape(-1, 1)
+                        previsoes_futuras = modelo.predict(futuro_indices)
+                        previsoes_futuras = np.maximum(previsoes_futuras, 0)
+                        
+                        df_historico_plot = serie_hist[['ANO', 'MES', 'TOTAL_CRIMES']].copy()
+                        df_historico_plot['Tipo'] = 'Histórico Real'
+                        df_historico_plot['Periodo'] = df_historico_plot['ANO'].astype(str) + "/" + df_historico_plot['MES'].astype(str)
+                        
+                        ultimo_ano = serie_hist['ANO'].iloc[-1]
+                        ultimo_mes = serie_hist['MES'].iloc[-1]
+                        
+                        lista_futuro = []
+                        ano_c, mes_c = ultimo_ano, ultimo_mes
+                        for val_prev in previsoes_futuras:
+                            mes_c += 1
+                            if mes_c > 12:
+                                mes_c = 1
+                                ano_c += 1
+                            lista_futuro.append({
+                                'ANO': ano_c,
+                                'MES': mes_c,
+                                'TOTAL_CRIMES': val_prev,
+                                'Tipo': 'Projeção Preditiva',
+                                'Periodo': f"{ano_c}/{mes_c}"
+                            })
+                            
+                        df_futuro_plot = pd.DataFrame(lista_futuro)
+                        df_combinado = pd.concat([df_historico_plot, df_futuro_plot], ignore_index=True)
+                        
+                        fig_pred = px.line(
+                            df_combinado,
+                            x='Periodo',
+                            y='TOTAL_CRIMES',
+                            color='Tipo',
+                            markers=True,
+                            title=f"Tendência e Projeção de Ocorrências para: {bairro_escolhido}"
+                        )
+                        fig_pred.update_traces(line_width=3)
+                        fig_pred.update_layout(
+                            height=350,
+                            xaxis={'title': 'Período (Ano/Mês)'},
+                            yaxis={'title': 'Volume Estimado de Crimes'},
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)'
+                        )
+                        st.plotly_chart(fig_pred, use_container_width=True)
+                        st.success("✨ Modelo preditivo executado com sucesso e integrado ao pipeline de dados!")
+                else:
+                    st.warning("⚠️ Dados insuficientes para este bairro/crime. Selecione outro filtro com mais histórico de ocorrências.")
 
         st.markdown("---")
         
