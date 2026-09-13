@@ -14,6 +14,7 @@
 O **Analytics Criminal SP** é uma plataforma analítica e preditiva projetada para processar, enriquecer e extrair inteligência tática a partir de **834.385 boletins de ocorrência** do Estado de São Paulo.
 
 ### Arquitetura em Camadas:
+
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │              STREAMLIT COMMAND CENTER (app.py)                │
@@ -45,6 +46,7 @@ O **Analytics Criminal SP** é uma plataforma analítica e preditiva projetada p
 Para responder à alta volumetria (834k linhas) e eliminar qualquer lentidão de renderização de mapas e consultas, implementou-se a seguinte estratégia:
 
 ### A. Lazy Loading Espacial do Mapa de Calor (< 1 ms)
+
 - **Problema anterior:** A aplicação baixava até 15.000 linhas completas (contendo 13 colunas com textos longos, datas e horas) para somente depois extrair as coordenadas do mapa. Isso gerava payloads pesados de 5 MB e sobrecarregava o iframe do Folium.
 - **Solução implementada:**
   - Criação do método `buscar_coordenadas_mapa_lazy(municipio, rubricas, limite)`.
@@ -54,6 +56,7 @@ Para responder à alta volumetria (834k linhas) e eliminar qualquer lentidão de
   - O mapa renderiza de forma instantânea e fluida.
 
 ### B. Indexação Espacial Nativa com PostGIS GiST (Generalized Search Tree)
+
 - **Implementação:**
   1. Coluna de geometria espacial: `geom geometry(Point, 4326)` (WGS84).
   2. População automática: `ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)`.
@@ -62,16 +65,19 @@ Para responder à alta volumetria (834k linhas) e eliminar qualquer lentidão de
 - **Benefício prático:** Permite a busca espacial por raio geodésico em metros (`ST_DWithin`) com redução do tempo de execução de **296 ms para 7.3 ms (ganho de 40x)**.
 
 ### C. Índices Compostos B-Tree
+
 - `idx_fatos_municipio_rubrica ON fatos_criminais (nome_municipio, rubrica)`.
 - `idx_fatos_municipio_ano_mes ON fatos_criminais (nome_municipio, ano, mes)`.
 - Eliminação total de scans sequenciais e de filtros pós-leitura em memória (tempo de busca caiu de 33.8 ms para 5.4 ms).
 
 ### D. Materialized Views (Visões Materializadas Pré-Computadas)
+
 - `mv_kpis_municipios`: total de crimes, número de rubricas e datas extremas por município com índice único `idx_mv_kpis_municipio`.
 - `mv_tendencias_mensais`: agregação mensal de volumes criminais.
 - Resposta em **0.06 ms** (ganho de mais de **700x** sobre varreduras em 834k linhas).
 
 ### E. Connection Pooling no SQLAlchemy
+
 - `pool_size=15`, `max_overflow=25`, `pool_pre_ping=True` e `pool_recycle=1800` eliminando o overhead de reconexão TCP em tempo de execução.
 
 ---
@@ -81,11 +87,13 @@ Para responder à alta volumetria (834k linhas) e eliminar qualquer lentidão de
 O módulo [`src/models/predictor.py`](src/models/predictor.py) foi substancialmente aprofundado matematicamente:
 
 ### A. Formulação do Modelo (Decomposição Harmônica + Regularização Ridge)
+
 Para capturar a sazonalidade real do calendário de crimes (picos em meses de férias, pagamentos e finais de ano), o modelo projeta as ocorrências via:
 
 $$y_t = \beta_0 + \beta_1 t + \alpha \cos\left(\frac{2\pi m_t}{12}\right) + \gamma \sin\left(\frac{2\pi m_t}{12}\right) + \epsilon_t$$
 
 Onde:
+
 - $t$: Tendência secular temporal contínua (`PERIODO_IDX`).
 - $\cos\left(\frac{2\pi m_t}{12}\right)$ e $\sin\left(\frac{2\pi m_t}{12}\right)$: Componentes harmônicas da Base de Fourier para modelar o ciclo periódico anual ($m_t \in \{1, \dots, 12\}$).
 - $\beta, \alpha, \gamma$: Parâmetros estimados via Regularização Ridge ($L_2$ Tikhonov) para mitigar o sobreajuste em séries temporais curtas:
@@ -93,6 +101,7 @@ Onde:
 $$\min_{\beta} \left( \frac{1}{2n} \|y - X\beta\|_2^2 + \frac{\lambda}{2} \|\beta\|_2^2 \right)$$
 
 ### B. Propagação de Incerteza e Intervalo de Confiança Estatístico (95% CI)
+
 O modelo não entrega apenas uma estimativa pontual, mas calcula rigorosamente os limites superior e inferior de risco através do erro padrão de previsão para horizonte futuro $h$:
 
 $$\text{SE}(h) = \hat{\sigma} \sqrt{1 + \frac{1}{n} + \frac{(t_{h} - \bar{t})^2}{\sum_{i=1}^n (t_i - \bar{t})^2}}$$
@@ -100,6 +109,7 @@ $$\text{SE}(h) = \hat{\sigma} \sqrt{1 + \frac{1}{n} + \frac{(t_{h} - \bar{t})^2}
 $$\text{IC}_{95\%} = \left[ \max(0, \hat{y}_h - 1.96 \cdot \text{SE}(h)), \quad \hat{y}_h + 1.96 \cdot \text{SE}(h) \right]$$
 
 ### C. Métricas de Avaliação Formais
+
 - **$R^2$ (Coeficiente de Determinação):** Percentual de variância explicada.
 - **RMSE (Root Mean Squared Error):** Magnitude média do erro de previsão.
 - **MAE (Mean Absolute Error):** Erro médio em número de crimes.
@@ -110,13 +120,13 @@ $$\text{IC}_{95\%} = \left[ \max(0, \hat{y}_h - 1.96 \cdot \text{SE}(h)), \quad 
 
 ## 4. Benchmark Comparativo de Performance
 
-| Tipo de Operação / Consulta | Antes | Depois | Estratégia Utilizada | Ganho de Velocidade |
-| :--- | :---: | :---: | :--- | :---: |
-| **Coordenadas do Mapa (Lazy Loading)** | 450 ms | **0.65 ms** | Lazy Loading de Coordenadas | **690x mais rápido** |
-| **KPIs e Agregações Municipais** | 46.28 ms | **0.06 ms** | Materialized View (`mv_kpis_municipios`) | **771x mais rápido** |
-| **Busca Filtrada por Município e Crime** | 33.80 ms | **5.43 ms** | Índice Composto B-Tree | **6.2x mais rápido** |
-| **Consulta Espacial por Raio (ST_DWithin)** | 296.56 ms | **7.34 ms** | Índice GiST Geodésico | **40.4x mais rápido** |
-| **Bounding Box Espacial (ST_MakeEnvelope)** | 44.43 ms | **0.09 ms** | Índice GiST R-Tree (`geom`) | **493x mais rápido** |
+| Tipo de Operação / Consulta                 |   Antes   |   Depois    | Estratégia Utilizada                     |  Ganho de Velocidade  |
+| :------------------------------------------ | :-------: | :---------: | :--------------------------------------- | :-------------------: |
+| **Coordenadas do Mapa (Lazy Loading)**      |  450 ms   | **0.65 ms** | Lazy Loading de Coordenadas              | **690x mais rápido**  |
+| **KPIs e Agregações Municipais**            | 46.28 ms  | **0.06 ms** | Materialized View (`mv_kpis_municipios`) | **771x mais rápido**  |
+| **Busca Filtrada por Município e Crime**    | 33.80 ms  | **5.43 ms** | Índice Composto B-Tree                   | **6.2x mais rápido**  |
+| **Consulta Espacial por Raio (ST_DWithin)** | 296.56 ms | **7.34 ms** | Índice GiST Geodésico                    | **40.4x mais rápido** |
+| **Bounding Box Espacial (ST_MakeEnvelope)** | 44.43 ms  | **0.09 ms** | Índice GiST R-Tree (`geom`)              | **493x mais rápido**  |
 
 ---
 
@@ -155,17 +165,20 @@ Implementou-se um assessor conversacional de segurança pública posicionado dir
 ## 7. Suíte de Testes Automatizados (26 Testes)
 
 A suíte em `tests/` cobre 100% dos requisitos do sistema:
+
 - `tests/test_ai_copilot.py` (6 testes): Extração de entidades (cidades, bairros e crimes), herança de município padrão, integração Gemini com dados reais do banco, resiliência de fallback caso a API falhe e estrutura padronizada da query analítica do chat.
 - `tests/test_processing.py` (6 testes): Bounding box de SP, conversão de coordenadas, atributos temporais e deduplicação de boletins.
 - `tests/test_models.py` (9 testes): Agregação de séries, insensibilidade a maiúsculas/minúsculas, bloqueio de séries insuficientes (<3 períodos), treino Ridge com Fourier, projeções não-negativas, cálculo de **Intervalo de Confiança 95%** e validação das **métricas estatísticas ($R^2$, RMSE, MAE, AIC)**.
 - `tests/test_ingestion.py` (5 testes): Sanitização contra SQL Injection, cláusula `ANY(:rubricas)`, resiliência a falhas de conexão, nova consulta espacial `ST_DWithin` do PostGIS e **Lazy Loading de coordenadas do mapa**.
 
 ### Execução dos Testes:
+
 ```bash
 ./venv/bin/python -m unittest discover tests -v
 ```
 
 **Resultado:**
+
 ```text
 Ran 26 tests in 0.134s
 OK (100% de aprovação)
