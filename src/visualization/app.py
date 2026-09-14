@@ -34,6 +34,9 @@ from folium.plugins import HeatMap
 from fpdf import FPDF
 from src.models.ai_copilot import SecurityCopilot
 from src.models.predictor import CriminalPredictor
+import importlib
+import src.ingestion.database
+importlib.reload(src.ingestion.database)
 from src.ingestion.database import DatabaseManager
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
@@ -201,6 +204,14 @@ def get_db_manager():
 
 db = get_db_manager()
 
+# Auto-recuperação de cache: se o objeto em cache for anterior às novas funções
+if not hasattr(db, "obter_bairros_municipio") or not hasattr(db, "buscar_serie_temporal"):
+    st.cache_resource.clear()
+    st.cache_data.clear()
+    importlib.reload(src.ingestion.database)
+    from src.ingestion.database import DatabaseManager
+    db = DatabaseManager()
+
 @st.cache_data(ttl=3600)
 def carregar_opcoes_filtros():
     """Carrega municípios e naturezas penais utilizando índices e Materialized Views."""
@@ -218,7 +229,12 @@ lista_municipios, lista_crimes = carregar_opcoes_filtros()
 @st.cache_data(ttl=3600)
 def carregar_bairros_municipio(municipio: str):
     """Carrega lista de bairros disponíveis com base real no PostGIS."""
-    return db.obter_bairros_municipio(municipio)
+    try:
+        if hasattr(db, "obter_bairros_municipio"):
+            return db.obter_bairros_municipio(municipio)
+    except Exception as e:
+        logger.error(f"Erro ao carregar bairros: {e}")
+    return []
 
 # --- ESTRATÉGIA DE LAZY LOADING (CARREGAMENTO RÁPIDO SEPARADO) ---
 @st.cache_data(ttl=1800)
