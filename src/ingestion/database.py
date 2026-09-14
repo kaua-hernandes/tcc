@@ -313,7 +313,7 @@ class DatabaseManager:
               AND (:mun IS NULL OR UPPER(nome_municipio) = :mun)
               AND (:bairro IS NULL OR UPPER(bairro) = :bairro)
               AND (:rubrica IS NULL OR rubrica = :rubrica)
-              AND ano IS NOT NULL AND mes IS NOT NULL
+              AND ano = 2025 AND mes IS NOT NULL
             GROUP BY ano, mes
             ORDER BY ano, mes;
         """
