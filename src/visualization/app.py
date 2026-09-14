@@ -215,6 +215,11 @@ def carregar_opcoes_filtros():
 
 lista_municipios, lista_crimes = carregar_opcoes_filtros()
 
+@st.cache_data(ttl=3600)
+def carregar_bairros_municipio(municipio: str):
+    """Carrega lista de bairros disponíveis com base real no PostGIS."""
+    return db.obter_bairros_municipio(municipio)
+
 # --- ESTRATÉGIA DE LAZY LOADING (CARREGAMENTO RÁPIDO SEPARADO) ---
 @st.cache_data(ttl=1800)
 def carregar_coordenadas_mapa_lazy(municipio: str, rubricas_tuple: tuple, limite: int):
@@ -597,21 +602,65 @@ with tab_predicao:
     st.markdown("#### 📐 Modelagem Preditiva com Decomposição Harmônica e Incerteza Estatística")
     
     col_p1, col_p2, col_p3 = st.columns([2, 2, 1])
-    bairros_disponiveis = df_filtrado['bairro'].dropna().unique().tolist() if not df_filtrado.empty and 'bairro' in df_filtrado.columns else []
     
+    # Carrega lista completa de bairros reais do município via PostGIS
+    bairros_reais = carregar_bairros_municipio(municipio_selecionado)
+    if not bairros_reais and not df_filtrado.empty and 'bairro' in df_filtrado.columns:
+        bairros_reais = sorted(df_filtrado['bairro'].dropna().unique().tolist())
+    
+    opcoes_bairros = ["GERAL (Todo o Município)"] + [b for b in bairros_reais if b != "GERAL"]
+    
+    # Pré-seleção inteligente (destaque para Liberdade ou Sé)
+    idx_bairro_padrao = 0
+    for i, b in enumerate(opcoes_bairros):
+        if "LIBERDADE" in b.upper():
+            idx_bairro_padrao = i
+            break
+        elif "SÉ" in b.upper() or "SE" in b.upper():
+            idx_bairro_padrao = i
+
     with col_p1:
-        bairro_escolhido = st.selectbox("Bairro Alvo", bairros_disponiveis if bairros_disponiveis else ["GERAL"])
+        bairro_escolhido = st.selectbox("Bairro Alvo", opcoes_bairros, index=idx_bairro_padrao)
+        bairro_param = None if "GERAL" in bairro_escolhido else bairro_escolhido
+
     with col_p2:
-        rubrica_escolhida = st.selectbox("Tipologia Penal", crimes_selecionados if crimes_selecionados else ["Geral"])
+        opcoes_crimes = lista_crimes if lista_crimes else (crimes_selecionados if crimes_selecionados else ["Geral"])
+        idx_crime_padrao = 0
+        for i, c in enumerate(opcoes_crimes):
+            if "ROUBO" in c.upper():
+                idx_crime_padrao = i
+                break
+        rubrica_escolhida = st.selectbox("Tipologia Penal", opcoes_crimes, index=idx_crime_padrao)
+
     with col_p3:
-        passos_projecao = st.selectbox("Horizonte Futuro", [3, 6, 12], index=0)
+        passos_projecao = st.selectbox("Horizonte Futuro", [3, 6, 12], index=1)
 
     if st.button("Executar Modelo Matemático Preditivo", key="btn_predicao"):
-        with st.spinner("Ajustando estimador Ridge e calculando propagação de variância residual..."):
-            preditor = CriminalPredictor(df_filtrado)
-            serie_hist = preditor.preparar_dados_serie_temporal(bairro=bairro_escolhido, rubrica=rubrica_escolhida)
+        with st.spinner("Consultando série temporal no PostGIS e ajustando estimador Ridge..."):
+            # 1. Consulta a série histórica completa direto no PostgreSQL/PostGIS (sem limite arbitrário de amostragem)
+            serie_hist = db.buscar_serie_temporal(
+                municipio=municipio_selecionado,
+                bairro=bairro_param,
+                rubrica=rubrica_escolhida
+            )
             
+            # 2. Fallback para dados em memória caso a query direta retorne vazia
+            if (serie_hist.empty or len(serie_hist) < 3) and not df_filtrado.empty:
+                preditor_fb = CriminalPredictor(df_filtrado)
+                serie_fb = preditor_fb.preparar_dados_serie_temporal(bairro=bairro_escolhido, rubrica=rubrica_escolhida)
+                if not serie_fb.empty and len(serie_fb) >= 3:
+                    serie_hist = serie_fb
+
             if not serie_hist.empty and len(serie_hist) >= 3:
+                # Prepara atributos temporais e harmônicas de Fourier
+                if 'PERIODO_IDX' not in serie_hist.columns:
+                    serie_hist['PERIODO_IDX'] = np.arange(len(serie_hist))
+                if 'FOURIER_SIN' not in serie_hist.columns:
+                    serie_hist['FOURIER_SIN'] = np.sin(2.0 * np.pi * serie_hist['MES'] / 12.0)
+                if 'FOURIER_COS' not in serie_hist.columns:
+                    serie_hist['FOURIER_COS'] = np.cos(2.0 * np.pi * serie_hist['MES'] / 12.0)
+
+                preditor = CriminalPredictor(serie_hist)
                 modelo = preditor.treinar_modelo_regressao(serie_hist)
                 if modelo:
                     df_proj = preditor.prever_com_intervalo_confianca(passos_futuros=passos_projecao, nivel_confianca=0.95)

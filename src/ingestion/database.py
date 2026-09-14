@@ -293,6 +293,71 @@ class DatabaseManager:
 
         return {"total_crimes": 0, "total_rubricas": 0, "data_min": None, "data_max": None}
 
+    def buscar_serie_temporal(
+        self, 
+        municipio: str, 
+        bairro: Optional[str] = None, 
+        rubrica: Optional[str] = None
+    ) -> pd.DataFrame:
+        """
+        Consulta a série histórica temporal agregada por (ano, mes) direto no PostgreSQL/PostGIS,
+        sem limitação de amostragem, acelerada por índices compostos.
+        """
+        mun_norm = municipio.strip().upper() if municipio else None
+        bairro_norm = bairro.strip().upper() if (bairro and bairro.strip().upper() != "GERAL") else None
+
+        query = """
+            SELECT ano, mes, count(*) AS total_crimes
+            FROM fatos_criminais
+            WHERE 1=1
+              AND (:mun IS NULL OR UPPER(nome_municipio) = :mun)
+              AND (:bairro IS NULL OR UPPER(bairro) = :bairro)
+              AND (:rubrica IS NULL OR rubrica = :rubrica)
+              AND ano IS NOT NULL AND mes IS NOT NULL
+            GROUP BY ano, mes
+            ORDER BY ano, mes;
+        """
+        params = {
+            "mun": mun_norm,
+            "bairro": bairro_norm,
+            "rubrica": rubrica if (rubrica and rubrica.lower() != "geral") else None
+        }
+        try:
+            with self.engine.connect() as conn:
+                df = pd.read_sql(text(query), conn, params=params)
+                df.columns = [c.upper() for c in df.columns]
+                return df
+        except Exception as e:
+            logger.error(f"[DB ERROR] Falha ao buscar série temporal: {e}")
+            return pd.DataFrame()
+
+    def obter_bairros_municipio(self, municipio: str, limite: int = 150) -> List[str]:
+        """
+        Retorna a lista de bairros disponíveis com maior volume de ocorrências para o município.
+        """
+        query = """
+            SELECT bairro, count(*) as qtd
+            FROM fatos_criminais
+            WHERE UPPER(nome_municipio) = :mun
+              AND bairro IS NOT NULL 
+              AND length(trim(bairro)) > 2
+              AND bairro !~ '^[0-9? -]+$'
+            GROUP BY bairro
+            ORDER BY qtd DESC
+            LIMIT :limite;
+        """
+        try:
+            with self.engine.connect() as conn:
+                res = conn.execute(text(query), {
+                    "mun": municipio.strip().upper(),
+                    "limite": limite
+                }).fetchall()
+                bairros = sorted([r[0].strip().upper() for r in res if r[0]])
+                return bairros
+        except Exception as e:
+            logger.error(f"Erro ao buscar bairros de {municipio}: {e}")
+            return []
+
     def obter_telemetria_postgis(self) -> Dict[str, Any]:
         """
         Retorna informações em tempo real sobre a saúde do banco, índices PostGIS,

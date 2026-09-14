@@ -43,6 +43,14 @@ class CriminalPredictor:
         df_temp = self.df.copy()
         df_temp.columns = [c.upper() for c in df_temp.columns]
 
+        # Se o DataFrame já foi agregado (ex: veio do banco com TOTAL_CRIMES, ANO, MES)
+        if 'TOTAL_CRIMES' in df_temp.columns and 'ANO' in df_temp.columns and 'MES' in df_temp.columns:
+            serie = df_temp.sort_values(by=['ANO', 'MES']).reset_index(drop=True)
+            serie['PERIODO_IDX'] = np.arange(len(serie))
+            serie['FOURIER_SIN'] = np.sin(2.0 * np.pi * serie['MES'] / 12.0)
+            serie['FOURIER_COS'] = np.cos(2.0 * np.pi * serie['MES'] / 12.0)
+            return serie
+
         subset = df_temp[
             (df_temp['BAIRRO'].astype(str).str.upper() == bairro.upper()) & 
             (df_temp['RUBRICA'].astype(str).str.upper() == rubrica.upper())

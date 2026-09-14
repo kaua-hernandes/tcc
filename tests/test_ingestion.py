@@ -97,6 +97,25 @@ class TestDatabaseManager(unittest.TestCase):
         self.assertEqual(params.get("municipio"), "S.PAULO")
         self.assertEqual(len(df), 1)
 
+    @patch('pandas.read_sql')
+    def test_buscar_serie_temporal_postgis(self, mock_read_sql):
+        """CT07: Deve consultar série temporal agregada por (ano, mes) direto no PostGIS."""
+        mock_read_sql.return_value = pd.DataFrame({'ano': [2024, 2024, 2024], 'mes': [1, 2, 3], 'total_crimes': [10, 20, 30]})
+
+        df = self.db.buscar_serie_temporal(municipio="S.PAULO", bairro="LIBERDADE", rubrica="Roubo (art. 157)")
+
+        self.assertTrue(mock_read_sql.called)
+        args, kwargs = mock_read_sql.call_args
+        query_text = str(args[0])
+        params = kwargs.get('params', {})
+
+        self.assertIn("GROUP BY ano, mes", query_text)
+        self.assertIn("ORDER BY ano, mes", query_text)
+        self.assertEqual(params.get("mun"), "S.PAULO")
+        self.assertEqual(params.get("bairro"), "LIBERDADE")
+        self.assertEqual(len(df), 3)
+
 
 if __name__ == '__main__':
     unittest.main()
+
